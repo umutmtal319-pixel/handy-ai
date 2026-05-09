@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Handy AI — Gesture Intelligence Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<style>
+  :root {
+    --accent: #7cffc4;
+    --accent2: #ff6bca;
+    --accent3: #6bb5ff;
+    --bg: #03020a;
+    --glass: rgba(255,255,255,0.04);
+    --glass-border: rgba(255,255,255,0.09);
+    --mode-color: var(--accent);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg); font-family: 'DM Mono', monospace; color: #fff;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+    user-select: none; -webkit-user-select: none;
+  }
+
+  /* GRAIN OVERLAY */
+  #grain {
+    position: fixed; inset: 0; pointer-events: none; z-index: 999;
+    opacity: 0.025;
+  }
+
+  /* TOP STRIPE */
+  #topStripe {
+    position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 1000;
+    background: linear-gradient(90deg, var(--accent), var(--accent3), var(--accent2));
+    background-size: 200% 100%;
+    animation: stripeShift 4s linear infinite;
+    transition: filter 0.4s;
+  }
+  @keyframes stripeShift { 0%{background-position:0% 0%} 100%{background-position:200% 0%} }
+
+  /* VIDEO */
+  #video {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1);
+    filter: brightness(0.25) saturate(0.6);
+    z-index: 0;
+  }
+
+  /* CANVASES */
+  canvas {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    pointer-events: none;
+  }
+  #bgCanvas { z-index: 1; }
+  #fxCanvas { z-index: 2; mix-blend-mode: screen; }
+  #drawCanvas { z-index: 3; }
+
+  /* TOP BAR */
+  #topBar {
+    position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+    z-index: 100; display: flex; align-items: center; gap: 12px;
+    background: rgba(3,2,10,0.55);
+    backdrop-filter: blur(18px) saturate(1.5);
+    border: 1px solid var(--glass-border);
+    border-radius: 50px;
+    padding: 8px 16px;
+    box-shadow: 0 4px 30px rgba(0,0,0,0.5);
+    transition: border-color 0.4s;
+  }
+  #brand {
+    font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1rem;
+    background: linear-gradient(90deg, var(--accent), var(--accent3), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; white-space: nowrap;
+  }
+  #betaPill {
+    font-size: 0.55rem; font-weight: 500; letter-spacing: 0.08em;
+    background: rgba(124,255,196,0.12); border: 1px solid rgba(124,255,196,0.3);
+    color: var(--accent); border-radius: 99px; padding: 2px 7px;
+    text-transform: uppercase;
+  }
+  #modeSwitcher {
+    display: flex; gap: 4px;
+    background: rgba(255,255,255,0.05); border-radius: 99px; padding: 3px;
+  }
+  .modeBtn {
+    background: none; border: none; cursor: pointer;
+    font-family: 'DM Mono', monospace; font-size: 0.72rem;
+    color: rgba(255,255,255,0.45); border-radius: 99px;
+    padding: 5px 14px; transition: all 0.25s; white-space: nowrap;
+    display: flex; align-items: center; gap: 5px;
+    min-height: 40px; min-width: 40px;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  .modeBtn.active {
+    background: rgba(255,255,255,0.1);
+    color: #fff;
+    box-shadow: 0 0 12px var(--mode-color), inset 0 0 8px rgba(255,255,255,0.05);
+  }
+  .modeBtn[data-mode="play"].active { box-shadow: 0 0 12px var(--accent), inset 0 0 8px rgba(124,255,196,0.1); color: var(--accent); }
+  .modeBtn[data-mode="shapes"].active { box-shadow: 0 0 12px var(--accent2), inset 0 0 8px rgba(255,107,202,0.1); color: var(--accent2); }
+  .modeBtn[data-mode="write"].active { box-shadow: 0 0 12px var(--accent3), inset 0 0 8px rgba(107,181,255,0.1); color: var(--accent3); }
+  .modeIcon { font-size: 1rem; }
+  #chips { display: flex; gap: 6px; }
+  .chip {
+    font-size: 0.65rem; letter-spacing: 0.06em;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 99px; padding: 4px 10px;
+    display: flex; align-items: center; gap: 5px; white-space: nowrap;
+  }
+  .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  /* BOTTOM HUD */
+  #bottomHud {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    z-index: 100;
+    background: rgba(3,2,10,0.65);
+    backdrop-filter: blur(18px);
+    border: 1px solid var(--glass-border);
+    border-radius: 99px; padding: 8px 20px;
+    display: flex; align-items: center; gap: 10px;
+    font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase;
+    transition: border-color 0.4s;
+    min-width: 180px; justify-content: center;
+  }
+  #gestureLabel { color: rgba(255,255,255,0.7); }
+  #activeIndicator {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent); opacity: 0;
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse 1s ease-in-out infinite;
+    transition: opacity 0.2s;
+  }
+  #activeIndicator.on { opacity: 1; }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.4)} }
+
+  /* HELP PANEL */
+  #helpPanel {
+    position: fixed; bottom: 20px; right: 20px; z-index: 100;
+    background: rgba(3,2,10,0.6);
+    backdrop-filter: blur(18px);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px; padding: 14px 16px;
+    font-size: 0.62rem; line-height: 1.8;
+    color: rgba(255,255,255,0.45);
+    max-width: 200px;
+  }
+  #helpPanel strong { color: rgba(255,255,255,0.75); display: block; margin-bottom: 6px; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.1em; }
+
+  /* TOAST */
+  #toast {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    z-index: 200; pointer-events: none;
+    opacity: 0; transform: scale(0.8) translateY(20px);
+    transition: opacity 0.2s, transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  #toast.show { opacity: 1; transform: scale(1) translateY(0); }
+  #toastText {
+    font-family: 'Syne', sans-serif; font-weight: 800; font-size: clamp(2rem, 8vw, 5rem);
+    background: linear-gradient(135deg, var(--accent), var(--accent3), var(--accent2));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    text-shadow: none; letter-spacing: -0.02em;
+    filter: drop-shadow(0 0 40px rgba(124,255,196,0.4));
+  }
+
+  /* SHAKE RING + CLEAR BUTTON */
+  #shakeRing {
+    position: fixed; bottom: 70px; right: 20px; z-index: 101;
+    display: none; width: 50px; height: 50px;
+  }
+  #shakeRing circle.track { fill: none; stroke: rgba(107,181,255,0.15); stroke-width: 4; }
+  #shakeRing circle.progress { fill: none; stroke: var(--accent3); stroke-width: 4;
+    stroke-dasharray: 138; stroke-dashoffset: 138; stroke-linecap: round;
+    transition: stroke-dashoffset 0.1s; transform-origin: center; transform: rotate(-90deg);
+  }
+  #clearBtn {
+    position: fixed; bottom: 20px; right: 20px; z-index: 101;
+    display: none;
+    background: rgba(107,181,255,0.12); border: 1px solid rgba(107,181,255,0.3);
+    color: var(--accent3); font-family: 'DM Mono', monospace; font-size: 0.68rem;
+    border-radius: 10px; padding: 10px 18px; cursor: pointer;
+    letter-spacing: 0.07em; text-transform: uppercase;
+    transition: background 0.2s, box-shadow 0.2s;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    min-height: 44px;
+  }
+  #clearBtn:hover { background: rgba(107,181,255,0.2); box-shadow: 0 0 15px rgba(107,181,255,0.3); }
+
+  /* SPLASH */
+  #splash {
+    position: fixed; inset: 0; z-index: 500;
+    background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 0; text-align: center; padding: 20px;
+    transition: opacity 0.8s ease, transform 0.8s ease;
+  }
+  #splash.hidden { opacity: 0; transform: scale(1.05); pointer-events: none; }
+
+  .rings {
+    position: relative; width: 160px; height: 160px; margin-bottom: 30px;
+  }
+  .ring {
+    position: absolute; border-radius: 50%; border: 1.5px solid;
+    top: 50%; left: 50%; transform: translate(-50%,-50%);
+    animation: ringPulse 2.4s ease-in-out infinite;
+  }
+  .ring:nth-child(1) { width: 60px; height: 60px; border-color: rgba(124,255,196,0.8); animation-delay: 0s; }
+  .ring:nth-child(2) { width: 100px; height: 100px; border-color: rgba(107,181,255,0.5); animation-delay: 0.4s; }
+  .ring:nth-child(3) { width: 150px; height: 150px; border-color: rgba(255,107,202,0.3); animation-delay: 0.8s; }
+  .ring-icon { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 2rem; }
+  @keyframes ringPulse { 0%,100%{opacity:0.4; transform:translate(-50%,-50%) scale(1)} 50%{opacity:1; transform:translate(-50%,-50%) scale(1.06)} }
+
+  #splashLogo {
+    font-family: 'Syne', sans-serif; font-weight: 800;
+    font-size: clamp(3rem, 10vw, 6rem);
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent3) 50%, var(--accent2) 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    line-height: 1; margin-bottom: 10px;
+    filter: drop-shadow(0 0 40px rgba(124,255,196,0.25));
+  }
+  #splashSub {
+    font-size: 0.65rem; letter-spacing: 0.25em; text-transform: uppercase;
+    color: rgba(255,255,255,0.35); margin-bottom: 36px;
+  }
+  .featurePills { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-bottom: 40px; }
+  .featurePill {
+    font-size: 0.65rem; letter-spacing: 0.08em;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 99px; padding: 6px 14px;
+    color: rgba(255,255,255,0.55);
+    background: rgba(255,255,255,0.03);
+    animation: pillFloat 3s ease-in-out infinite;
+  }
+  .featurePill:nth-child(2) { animation-delay: 0.5s; }
+  .featurePill:nth-child(3) { animation-delay: 1s; }
+  @keyframes pillFloat { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-4px)} }
+
+  #enterBtn {
+    background: linear-gradient(135deg, rgba(124,255,196,0.15), rgba(107,181,255,0.1));
+    border: 1.5px solid rgba(124,255,196,0.5);
+    color: var(--accent); font-family: 'DM Mono', monospace;
+    font-size: 0.85rem; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 16px 42px; border-radius: 99px; cursor: pointer;
+    transition: all 0.3s; margin-bottom: 20px;
+    box-shadow: 0 0 30px rgba(124,255,196,0.15), inset 0 0 20px rgba(124,255,196,0.05);
+    animation: glowPulse 2s ease-in-out infinite;
+    touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+    min-height: 52px;
+  }
+  @keyframes glowPulse { 0%,100%{box-shadow:0 0 30px rgba(124,255,196,0.15), inset 0 0 20px rgba(124,255,196,0.05)} 50%{box-shadow:0 0 50px rgba(124,255,196,0.3), inset 0 0 30px rgba(124,255,196,0.1)} }
+  #enterBtn:hover { background: linear-gradient(135deg, rgba(124,255,196,0.25), rgba(107,181,255,0.18)); box-shadow: 0 0 60px rgba(124,255,196,0.4); transform: scale(1.03); }
+  #splashNote { font-size: 0.58rem; color: rgba(255,255,255,0.2); letter-spacing: 0.05em; }
+
+  /* MOBILE */
+  @media (max-width: 600px) {
+    .modeBtnLabel { display: none; }
+    .modeBtn { padding: 6px 10px; }
+    #topBar { gap: 6px; padding: 6px 10px; max-width: calc(100vw - 16px); }
+    #brand { font-size: 0.8rem; }
+    #helpPanel { display: none; }
+    #chips .chip:last-child { display: none; } /* el chip'i gizle, yer aç */
+    #bottomHud { bottom: 16px; font-size: 0.65rem; padding: 7px 14px; max-width: calc(100vw - 40px); }
+    #shakeRing { bottom: 80px; right: 12px; }
+    #clearBtn { bottom: 16px; right: 12px; font-size: 0.62rem; padding: 9px 14px; }
+    /* Splash telefon */
+    .rings { width: 120px; height: 120px; margin-bottom: 20px; }
+    .ring:nth-child(1) { width: 46px; height: 46px; }
+    .ring:nth-child(2) { width: 78px; height: 78px; }
+    .ring:nth-child(3) { width: 114px; height: 114px; }
+    #splashSub { font-size: 0.55rem; letter-spacing: 0.15em; margin-bottom: 24px; }
+    .featurePills { gap: 7px; margin-bottom: 28px; }
+    .featurePill { font-size: 0.58rem; padding: 5px 10px; }
+  }
+
+  /* Touch draw overlay — write modunda parmakla çizim için */
+  #touchOverlay {
+    position: fixed; inset: 0; z-index: 5;
+    display: none; touch-action: none;
+    cursor: crosshair;
+  }
+  #touchOverlay.active { display: block; }
+</style>
+</head>
+<body>
+
+<!-- Grain -->
+<svg id="grain" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+  <filter id="noiseFilter">
+    <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/>
+    <feColorMatrix type="saturate" values="0"/>
+  </filter>
+  <rect width="100%" height="100%" filter="url(#noiseFilter)"/>
+</svg>
+
+<div id="topStripe"></div>
+<video id="video" playsinline autoplay muted></video>
+<canvas id="bgCanvas"></canvas>
+<canvas id="fxCanvas"></canvas>
+<canvas id="drawCanvas"></canvas>
+
+<!-- Touch overlay — parmakla çizim için (write modu) -->
+<div id="touchOverlay"></div>
+
+<!-- TOP BAR -->
+<div id="topBar">
+  <div style="display:flex;align-items:center;gap:7px">
+    <span id="brand">Handy AI</span>
+    <span id="betaPill">Beta</span>
+  </div>
+  <div id="modeSwitcher">
+    <button class="modeBtn active" data-mode="play"><span class="modeIcon">✦</span><span class="modeBtnLabel">Play</span></button>
+    <button class="modeBtn" data-mode="shapes"><span class="modeIcon">◈</span><span class="modeBtnLabel">Shapes</span></button>
+    <button class="modeBtn" data-mode="write"><span class="modeIcon">✎</span><span class="modeBtnLabel">Write</span></button>
+  </div>
+  <div id="chips">
+    <div class="chip"><span class="chip-dot" style="background:#7cffc4"></span><span id="fpsChip">-- fps</span></div>
+    <div class="chip"><span class="chip-dot" style="background:#6bb5ff"></span><span id="handChip">0 hands</span></div>
+  </div>
+</div>
+
+<!-- BOTTOM HUD -->
+<div id="bottomHud">
+  <div id="activeIndicator"></div>
+  <span id="gestureLabel">waiting for hands...</span>
+</div>
+
+<!-- HELP PANEL -->
+<div id="helpPanel">
+  <strong id="helpTitle">Play Mode</strong>
+  <div id="helpText">
+    Pinch 🤌 for spark burst<br>
+    Two hands = lightning<br>
+    Move fast = matrix rain surge
+  </div>
+</div>
+
+<!-- SHAKE RING -->
+<svg id="shakeRing" viewBox="0 0 50 50">
+  <circle class="track" cx="25" cy="25" r="22"/>
+  <circle class="progress" id="shakeProgress" cx="25" cy="25" r="22"/>
+</svg>
+
+<!-- CLEAR BUTTON -->
+<button id="clearBtn" onclick="clearCanvas()">Clear Canvas</button>
+
+<!-- TOAST -->
+<div id="toast"><span id="toastText"></span></div>
+
+<!-- SPLASH -->
+<div id="splash">
+  <div class="rings">
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <span class="ring-icon">🖐</span>
+  </div>
+  <div id="splashLogo">Handy AI</div>
+  <div id="splashSub">Gesture Intelligence Platform</div>
+  <div class="featurePills">
+    <div class="featurePill">⚡ Real-time Tracking</div>
+    <div class="featurePill">✦ Gesture Physics</div>
+    <div class="featurePill">✎ Air Drawing</div>
+  </div>
+  <button id="enterBtn" onclick="enterExperience()">Enter Experience</button>
+  <div id="splashNote">Camera access required · Best in Chrome / Edge</div>
+</div>
+
+<script>
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let mode = 'play'; // play | shapes | write
+let hands = [];
+let W = window.innerWidth, H = window.innerHeight;
+let frameCount = 0, fps = 0, fpsTimer = 0, lastTime = 0;
+let audioCtx = null, humOsc = null, humGain = null;
+let audioReady = false;
+const modeColors = { play: '#7cffc4', shapes: '#ff6bca', write: '#6bb5ff' };
+const modeHues  = { play: 153, shapes: 318, write: 210 };
+
+// Particles
+let particles = [];
+// Ripples
+let ripples = [];
+// Draw paths
+let drawPaths = [];
+let activePath = null;
+let penDown = false;
+let pathHue = 0;
+// Shake
+let wristXHistory = [];
+let shakeReversals = 0;
+let shakeCooldown = 0;
+let lastWristDir = 0;
+// Toast
+let toastTimeout = null;
+// Prev fingertip positions for velocity
+let prevTips = null;
+let tipVelocity = 0;
+
+// ─── CANVASES ─────────────────────────────────────────────────────────────────
+const video   = document.getElementById('video');
+const bgCtx   = document.getElementById('bgCanvas').getContext('2d');
+const fxCtx   = document.getElementById('fxCanvas').getContext('2d');
+const drawCtx = document.getElementById('drawCanvas').getContext('2d');
+
+function resizeCanvases() {
+  W = window.innerWidth; H = window.innerHeight;
+  for (const id of ['bgCanvas','fxCanvas','drawCanvas']) {
+    const c = document.getElementById(id);
+    c.width = W; c.height = H;
+  }
+}
+window.addEventListener('resize', () => { resizeCanvases(); drawPaths = []; activePath = null; });
+resizeCanvases();
+
+// ─── MATRIX RAIN ─────────────────────────────────────────────────────────────
+const KATAKANA = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン';
+const COLS = Math.floor(W/15)+2;
+const drops = Array.from({length: COLS}, () => Math.random() * -100);
+let matrixHue = 0;
+
+function drawMatrix(speed) {
+  const ctx = bgCtx;
+  ctx.fillStyle = 'rgba(3,2,10,0.18)';
+  ctx.fillRect(0,0,W,H);
+  matrixHue = (matrixHue + 0.3) % 360;
+  ctx.font = '15px "DM Mono"';
+  for (let i = 0; i < drops.length; i++) {
+    const ch = KATAKANA[Math.floor(Math.random()*KATAKANA.length)];
+    const hue = (matrixHue + i*3) % 360;
+    ctx.fillStyle = `hsla(${hue},80%,70%,0.85)`;
+    ctx.fillText(ch, i*15, drops[i]*15);
+    if (drops[i]*15 > H && Math.random() > 0.975) drops[i] = 0;
+    drops[i] += 0.3 + speed * 2.5;
+  }
+}
+
+// ─── AUDIO ───────────────────────────────────────────────────────────────────
+function initAudio() {
+  if (audioReady) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  audioReady = true;
+  // Hum
+  humOsc = audioCtx.createOscillator();
+  humGain = audioCtx.createGain();
+  humOsc.type = 'sine';
+  humOsc.frequency.value = 80;
+  humGain.gain.value = 0;
+  humOsc.connect(humGain);
+  humGain.connect(audioCtx.destination);
+  humOsc.start();
+}
+
+function playZap() {
+  if (!audioReady) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = 'sawtooth';
+  osc.frequency.setValueAtTime(700, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime(30, audioCtx.currentTime + 0.12);
+  g.gain.setValueAtTime(0.25, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.12);
+  osc.connect(g); g.connect(audioCtx.destination);
+  osc.start(); osc.stop(audioCtx.currentTime + 0.13);
+}
+
+function playPop(freq) {
+  if (!audioReady) return;
+  const osc = audioCtx.createOscillator();
+  const g = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(freq||440, audioCtx.currentTime);
+  osc.frequency.exponentialRampToValueAtTime((freq||440)*0.5, audioCtx.currentTime + 0.08);
+  g.gain.setValueAtTime(0.2, audioCtx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+  osc.connect(g); g.connect(audioCtx.destination);
+  osc.start(); osc.stop(audioCtx.currentTime + 0.09);
+}
+
+function setHum(targetFreq, targetGain) {
+  if (!audioReady) return;
+  humOsc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.3);
+  humGain.gain.setTargetAtTime(targetGain, audioCtx.currentTime, 0.3);
+}
+
+// ─── TOAST ───────────────────────────────────────────────────────────────────
+let lastToastMsg = '';
+let lastToastTime = 0;
+function showToast(msg) {
+  const now = Date.now();
+  if (msg === lastToastMsg && now - lastToastTime < 1200) return;
+  lastToastMsg = msg; lastToastTime = now;
+  const t = document.getElementById('toast');
+  document.getElementById('toastText').textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimeout);
+  toastTimeout = setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+// ─── GESTURE LABEL ───────────────────────────────────────────────────────────
+function setGesture(label, active) {
+  document.getElementById('gestureLabel').textContent = label;
+  const ind = document.getElementById('activeIndicator');
+  if (active) ind.classList.add('on'); else ind.classList.remove('on');
+}
+
+// ─── PARTICLES ───────────────────────────────────────────────────────────────
+function spawnParticles(x, y, count, color) {
+  for (let i = 0; i < count; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = Math.random() * 4 + 1;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 2,
+      life: 45, maxLife: 45,
+      color: color || `hsl(${Math.random()*360},100%,70%)`,
+      size: Math.random()*3+1
+    });
+  }
+}
+
+function spawnSparkle(x, y) {
+  spawnParticles(x, y, 1, `hsl(${Math.random()*80+130},100%,80%)`);
+}
+
+function updateParticles(ctx) {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vy += 0.15;
+    p.x += p.vx; p.y += p.vy;
+    p.life--;
+    if (p.life <= 0) { particles.splice(i,1); continue; }
+    const alpha = p.life / p.maxLife;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size, 0, Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ─── RIPPLES ─────────────────────────────────────────────────────────────────
+function spawnRipple(x, y, color) {
+  ripples.push({ x, y, r: 0, maxR: 80, life: 40, maxLife: 40, color: color||'#7cffc4' });
+  ripples.push({ x, y, r: 0, maxR: 55, life: 40, maxLife: 40, color: color||'#7cffc4' });
+}
+
+function updateRipples(ctx) {
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const rp = ripples[i];
+    rp.r += rp.maxR / rp.maxLife;
+    rp.life--;
+    if (rp.life <= 0) { ripples.splice(i,1); continue; }
+    const alpha = rp.life / rp.maxLife;
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.8;
+    ctx.strokeStyle = rp.color;
+    ctx.shadowColor = rp.color;
+    ctx.shadowBlur = 15;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(rp.x, rp.y, rp.r, 0, Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// ─── LIGHTNING ───────────────────────────────────────────────────────────────
+function drawLightning(ctx, x1, y1, x2, y2, color) {
+  ctx.save();
+  ctx.strokeStyle = color || '#fff';
+  ctx.shadowColor = color || '#fff';
+  ctx.shadowBlur = 20;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  const segs = 8;
+  ctx.moveTo(x1, y1);
+  for (let i = 1; i <= segs; i++) {
+    const t = i / segs;
+    const mx = x1 + (x2-x1)*t + (Math.random()-0.5)*40;
+    const my = y1 + (y2-y1)*t + (Math.random()-0.5)*40;
+    ctx.lineTo(mx, my);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ─── HAND LANDMARKS HELPER ───────────────────────────────────────────────────
+function lm(hand, i) { return { x: hand[i].x*W, y: hand[i].y*H }; }
+function dist(a, b) { return Math.hypot(a.x-b.x, a.y-b.y); }
+function ndist(hand, i, j) { return Math.hypot(hand[i].x-hand[j].x, hand[i].y-hand[j].y); }
+function mid(a,b) { return {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; }
+
+// Fingertip indices
+const TIPS = [4,8,12,16,20]; // thumb, index, middle, ring, pinky
+// Base indices (MCP)
+const BASES = [2,5,9,13,17];
+
+function fingerSpread(hand) {
+  // avg distance of tips from wrist in normalized
+  const wrist = hand[0];
+  let s = 0;
+  for (const t of TIPS) s += Math.hypot(hand[t].x-wrist.x, hand[t].y-wrist.y);
+  return s / TIPS.length;
+}
+
+function isPinch(hand) {
+  return ndist(hand,4,8) < 0.055;
+}
+
+// ─── PLAY MODE RENDER ─────────────────────────────────────────────────────────
+const CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,4],
+  [0,5],[5,6],[6,7],[7,8],
+  [5,9],[9,10],[10,11],[11,12],
+  [9,13],[13,14],[14,15],[15,16],
+  [13,17],[0,17],[17,18],[18,19],[19,20]
+];
+
+function renderPlayMode(ctx, t) {
+  hands.forEach((hand, hi) => {
+    const hueBase = (t*30 + hi*120) % 360;
+    // Draw connections
+    for (const [a,b] of CONNECTIONS) {
+      const pa = lm(hand,a), pb = lm(hand,b);
+      const grad = ctx.createLinearGradient(pa.x,pa.y,pb.x,pb.y);
+      grad.addColorStop(0, `hsla(${(hueBase+a*8)%360},100%,70%,0.7)`);
+      grad.addColorStop(1, `hsla(${(hueBase+b*8)%360},100%,70%,0.7)`);
+      ctx.save();
+      ctx.strokeStyle = grad;
+      ctx.shadowColor = `hsl(${hueBase},100%,70%)`;
+      ctx.shadowBlur = 12;
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
+      ctx.restore();
+    }
+    // Fingertip blobs + sparkles
+    for (const ti of TIPS) {
+      const p = lm(hand,ti);
+      const hue = (hueBase + ti*15) % 360;
+      ctx.save();
+      ctx.fillStyle = `hsla(${hue},100%,75%,0.9)`;
+      ctx.shadowColor = `hsl(${hue},100%,70%)`;
+      ctx.shadowBlur = 20;
+      ctx.beginPath(); ctx.arc(p.x,p.y,7,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+      if (Math.random() < 0.3) spawnSparkle(p.x,p.y);
+    }
+
+    // Pinch
+    if (isPinch(hand)) {
+      const pp = mid(lm(hand,4), lm(hand,8));
+      if (Math.random() < 0.25) {
+        spawnRipple(pp.x,pp.y,'#7cffc4');
+        spawnParticles(pp.x,pp.y,12,'#7cffc4');
+        playZap();
+        showToast('Pinch ⚡');
+      }
+    }
+  });
+
+  // Two-hand interaction
+  if (hands.length === 2) {
+    const h1 = hands[0], h2 = hands[1];
+    // Lines between tips
+    for (const ti of TIPS) {
+      const a = lm(h1,ti), b = lm(h2,ti);
+      const hue = (t*40 + ti*20) % 360;
+      ctx.save();
+      ctx.strokeStyle = `hsla(${hue},100%,70%,0.35)`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke();
+      ctx.restore();
+      // Lightning when close
+      if (dist(a,b) < 140) {
+        drawLightning(ctx, a.x, a.y, b.x, b.y, `hsl(${hue},100%,80%)`);
+      }
+    }
+
+    // Mandala at centroid
+    let cx=0, cy=0;
+    for (const ti of TIPS) { cx+=lm(h1,ti).x+lm(h2,ti).x; cy+=lm(h1,ti).y+lm(h2,ti).y; }
+    cx /= 10; cy /= 10;
+    const allTips = [...TIPS.map(ti=>lm(h1,ti)), ...TIPS.map(ti=>lm(h2,ti))];
+    ctx.save();
+    ctx.translate(cx,cy);
+    ctx.rotate(t*0.8);
+    ctx.strokeStyle = `hsla(${(t*60)%360},100%,70%,0.4)`;
+    ctx.lineWidth = 1;
+    ctx.shadowColor = `hsl(${(t*60)%360},100%,70%)`;
+    ctx.shadowBlur = 10;
+    for (let i=0;i<allTips.length;i++) {
+      for (let j=i+1;j<allTips.length;j++) {
+        const ax=allTips[i].x-cx, ay=allTips[i].y-cy;
+        const bx=allTips[j].x-cx, by=allTips[j].y-cy;
+        ctx.beginPath(); ctx.moveTo(ax,ay); ctx.lineTo(bx,by); ctx.stroke();
+      }
+    }
+    ctx.restore();
+
+    // Hum pitch
+    const w1 = lm(h1,0), w2 = lm(h2,0);
+    const d = dist(w1,w2);
+    const freq = 80 + (d/W)*280;
+    setHum(freq, 0.06);
+  } else {
+    setHum(80, 0);
+  }
+}
+
+// ─── SHAPES MODE ──────────────────────────────────────────────────────────────
+function renderShapesMode(ctx, t) {
+  if (hands.length < 2) {
+    setGesture('show both hands', false);
+    return;
+  }
+  const h1=hands[0], h2=hands[1];
+  const w1=lm(h1,0), w2=lm(h2,0);
+  const palmDist = ndist(h1,0,h2[0]?0:0) || Math.hypot(h1[0].x-h2[0].x, h1[0].y-h2[0].y);
+  const spread1 = fingerSpread(h1);
+  const spread2 = fingerSpread(h2);
+  const avgSpread = (spread1+spread2)/2;
+  const pd = Math.hypot(h1[0].x-h2[0].x, h1[0].y-h2[0].y);
+
+  // HEART: palms close + fingers open
+  if (pd < 0.35 && avgSpread > 0.09) {
+    setGesture('heart ❤️', true);
+    const cx=(w1.x+w2.x)/2, cy=(w1.y+w2.y)/2;
+    drawHeart(ctx, cx, cy, 70+Math.sin(t*4)*3.5, t);
+    showToast('❤️ Heart');
+    return;
+  }
+
+  // STAR BURST: both fisted
+  if (spread1 < 0.09 && spread2 < 0.09) {
+    setGesture('star burst ✦', true);
+    const cx=(w1.x+w2.x)/2, cy=(w1.y+w2.y)/2;
+    drawStarBurst(ctx, cx, cy, t);
+    if (Math.random()<0.08) { spawnParticles(cx,cy,25); showToast('✦ Star Burst!'); playPop(660); }
+    return;
+  }
+
+  // PEACE: one hand - index+middle extended, ring+pinky close
+  for (const h of hands) {
+    const iExt = ndist(h,8,0) > 0.18;
+    const mExt = ndist(h,12,0) > 0.18;
+    const rClose = ndist(h,16,0) < 0.16;
+    const pClose = ndist(h,20,0) < 0.16;
+    if (iExt && mExt && rClose && pClose) {
+      setGesture('peace ✌️', true);
+      const wrist = lm(h,0);
+      drawPeace(ctx, wrist.x, wrist.y-100, 60, t);
+      showToast('✌️ Peace');
+      return;
+    }
+  }
+
+  setGesture('try a gesture', false);
+}
+
+function drawHeart(ctx, cx, cy, size, t) {
+  ctx.save();
+  ctx.translate(cx,cy);
+  const scale = 1+Math.sin(t*5)*0.05;
+  ctx.scale(scale,scale);
+  const grad = ctx.createRadialGradient(0,0,0,0,0,size);
+  grad.addColorStop(0,'rgba(255,107,202,0.9)');
+  grad.addColorStop(1,'rgba(255,107,202,0.1)');
+  ctx.shadowColor='#ff6bca'; ctx.shadowBlur=40;
+  ctx.fillStyle=grad; ctx.strokeStyle='#ff6bca'; ctx.lineWidth=2;
+  ctx.beginPath();
+  for (let a=0;a<=Math.PI*2;a+=0.01) {
+    const x=size*16*Math.pow(Math.sin(a),3)/17;
+    const y=-size*(13*Math.cos(a)-5*Math.cos(2*a)-2*Math.cos(3*a)-Math.cos(4*a))/17;
+    a===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+function drawPeace(ctx, cx, cy, r, t) {
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.strokeStyle='#ff6bca'; ctx.lineWidth=3;
+  ctx.shadowColor='#ff6bca'; ctx.shadowBlur=25;
+  ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,-r); ctx.lineTo(0,r); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-r*Math.cos(Math.PI/6)*-1, r*Math.sin(Math.PI/6)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(r*Math.cos(Math.PI/6)*-1, r*Math.sin(Math.PI/6)); ctx.stroke();
+  ctx.restore();
+}
+
+function drawStarBurst(ctx, cx, cy, t) {
+  ctx.save();
+  ctx.translate(cx,cy);
+  ctx.rotate(t*1.2);
+  const pts=8, outerR=90, innerR=38;
+  const grad=ctx.createRadialGradient(0,0,0,0,0,outerR);
+  grad.addColorStop(0,'#fff'); grad.addColorStop(0.5,'#ffd700'); grad.addColorStop(1,'rgba(255,200,0,0)');
+  ctx.shadowColor='#ffd700'; ctx.shadowBlur=50;
+  ctx.fillStyle=grad;
+  ctx.beginPath();
+  for (let i=0;i<pts*2;i++) {
+    const r=i%2===0?outerR:innerR;
+    const a=(Math.PI/pts)*i - Math.PI/2;
+    i===0?ctx.moveTo(Math.cos(a)*r,Math.sin(a)*r):ctx.lineTo(Math.cos(a)*r,Math.sin(a)*r);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+// ─── WRITE MODE ───────────────────────────────────────────────────────────────
+function renderWriteMode(ctx, t) {
+  if (hands.length === 0) { setGesture('show your hand', false); return; }
+  const hand = hands[0];
+  const indexTip = lm(hand,8);
+
+  // Wrist X for shake detection
+  const wx = hand[0].x;
+  wristXHistory.push(wx);
+  if (wristXHistory.length > 30) wristXHistory.shift();
+  detectShake(hand);
+
+  // Detect pen down: index extended, others curled
+  const iExt = ndist(hand,8,5) > 0.1;
+  const mClose = ndist(hand,12,9) < 0.1;
+  const pinch = isPinch(hand);
+
+  if (pinch && penDown && activePath) {
+    // Pen up
+    drawPaths.push(activePath);
+    activePath = null;
+    penDown = false;
+    setGesture('pen up', false);
+  } else if (iExt && mClose && !pinch) {
+    if (!penDown) {
+      pathHue = (pathHue + 40) % 360;
+      activePath = { points: [], hue: pathHue };
+      penDown = true;
+    }
+    activePath.points.push({x:indexTip.x, y:indexTip.y});
+    setGesture('drawing ✎', true);
+  } else {
+    if (penDown && activePath) {
+      drawPaths.push(activePath);
+      activePath = null;
+      penDown = false;
+    }
+    setGesture('point to draw', false);
+  }
+
+  // Render saved paths on drawCanvas
+  const dctx = drawCtx;
+  dctx.clearRect(0,0,W,H);
+  for (const path of drawPaths) renderPath(dctx, path, false);
+  if (activePath) renderPath(dctx, activePath, true);
+
+  // Cursor
+  ctx.save();
+  ctx.strokeStyle=`hsla(${(t*60)%360},100%,70%,0.8)`;
+  ctx.shadowColor=`hsl(${(t*60)%360},100%,70%)`;
+  ctx.shadowBlur=20; ctx.lineWidth=2;
+  const pr = 8 + Math.sin(t*6)*3;
+  ctx.beginPath(); ctx.arc(indexTip.x,indexTip.y,pr,0,Math.PI*2);
+  if (penDown) ctx.fillStyle=`hsla(${pathHue},100%,70%,0.3)`;
+  else ctx.fillStyle='transparent';
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
+function renderPath(ctx, path, isActive) {
+  if (!path.points || path.points.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle=`hsl(${path.hue},100%,70%)`;
+  ctx.shadowColor=`hsl(${path.hue},100%,70%)`;
+  ctx.shadowBlur=isActive?20:12;
+  ctx.lineWidth=4.5; ctx.lineCap='round'; ctx.lineJoin='round';
+  ctx.beginPath();
+  ctx.moveTo(path.points[0].x,path.points[0].y);
+  for (let i=1;i<path.points.length-1;i++) {
+    const mx=(path.points[i].x+path.points[i+1].x)/2;
+    const my=(path.points[i].y+path.points[i+1].y)/2;
+    ctx.quadraticCurveTo(path.points[i].x,path.points[i].y,mx,my);
+  }
+  const last=path.points[path.points.length-1];
+  ctx.lineTo(last.x,last.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function detectShake(hand) {
+  if (shakeCooldown > 0) { shakeCooldown--; return; }
+  if (wristXHistory.length < 10) return;
+
+  // Count reversals
+  let revs = 0;
+  let dir = 0;
+  for (let i=1;i<wristXHistory.length;i++) {
+    const d = wristXHistory[i] - wristXHistory[i-1];
+    if (Math.abs(d) < 0.005) continue;
+    const nd = d > 0 ? 1 : -1;
+    if (dir !== 0 && nd !== dir) revs++;
+    dir = nd;
+  }
+
+  shakeReversals = revs;
+  // Update ring
+  const progress = Math.min(revs / 6, 1);
+  const circumference = 138;
+  document.getElementById('shakeProgress').style.strokeDashoffset = circumference*(1-progress);
+
+  // Open palm check
+  const spread = fingerSpread(hand);
+  if (revs >= 6 && spread > 0.1) {
+    clearCanvas();
+    showToast('Canvas Cleared 🌀');
+    shakeCooldown = 60;
+    shakeReversals = 0;
+    document.getElementById('shakeProgress').style.strokeDashoffset = circumference;
+  }
+}
+
+function clearCanvas() {
+  drawPaths = [];
+  activePath = null;
+  penDown = false;
+  touchPaths = {};
+  drawCtx.clearRect(0,0,W,H);
+}
+
+// ─── MAIN RENDER LOOP ─────────────────────────────────────────────────────────
+function render(ts) {
+  requestAnimationFrame(render);
+  const t = ts / 1000;
+  const dt = t - lastTime; lastTime = t;
+
+  // FPS
+  frameCount++;
+  fpsTimer += dt;
+  if (fpsTimer >= 1) {
+    fps = Math.round(frameCount/fpsTimer);
+    frameCount=0; fpsTimer=0;
+    document.getElementById('fpsChip').textContent = fps+' fps';
+    document.getElementById('handChip').textContent = hands.length+' hand'+(hands.length!==1?'s':'');
+  }
+
+  // Compute tip velocity
+  if (hands.length > 0) {
+    const tips = TIPS.map(ti => lm(hands[0],ti));
+    if (prevTips) {
+      let v=0;
+      tips.forEach((p,i)=>{ v+=dist(p,prevTips[i]); });
+      tipVelocity = v/(TIPS.length*5);
+    }
+    prevTips = tips;
+  } else { tipVelocity = 0; prevTips = null; }
+
+  // Matrix rain
+  drawMatrix(tipVelocity);
+
+  // FX canvas
+  fxCtx.clearRect(0,0,W,H);
+
+  // Mode rendering
+  if (mode==='play') renderPlayMode(fxCtx,t);
+  else if (mode==='shapes') renderShapesMode(fxCtx,t);
+  else if (mode==='write') renderWriteMode(fxCtx,t);
+
+  // Particles & ripples
+  updateParticles(fxCtx);
+  updateRipples(fxCtx);
+
+  // Clear draw canvas when not in write mode
+  if (mode !== 'write') drawCtx.clearRect(0,0,W,H);
+}
+
+// ─── MEDIAPIPE SETUP ─────────────────────────────────────────────────────────
+let mpHands, mpCamera;
+
+async function initMediaPipe() {
+  mpHands = new Hands({ locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+  mpHands.setOptions({
+    maxNumHands: 2,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.72,
+    minTrackingConfidence: 0.72
+  });
+  mpHands.onResults(results => {
+    hands = results.multiHandLandmarks || [];
+  });
+
+  mpCamera = new Camera(video, {
+    onFrame: async () => { await mpHands.send({ image: video }); },
+    width: 1920, height: 1080, frameRate: 30
+  });
+  await mpCamera.start();
+}
+
+// ─── MODE SWITCHER ────────────────────────────────────────────────────────────
+const helpTexts = {
+  play: { title:'Play Mode', text:'Pinch 🤌 for spark burst<br>Two hands = lightning + mandala<br>Move fast = matrix surge' },
+  shapes: { title:'Shapes Mode', text:'Both hands palms close = ❤️<br>Index + middle up = ✌️<br>Both fisted = ✦ Star Burst' },
+  write: { title:'Write Mode', text:'Point index finger = draw<br>Pinch = lift pen<br>Shake open palm = clear canvas' }
+};
+
+document.querySelectorAll('.modeBtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    mode = btn.dataset.mode;
+    document.querySelectorAll('.modeBtn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    // Update help
+    const h = helpTexts[mode];
+    document.getElementById('helpTitle').textContent = h.title;
+    document.getElementById('helpText').innerHTML = h.text;
+    // Mode color CSS
+    const c = modeColors[mode];
+    document.documentElement.style.setProperty('--mode-color', c);
+    // Update top stripe accent-ish
+    document.getElementById('topStripe').style.filter = mode==='write'?'hue-rotate(210deg)':mode==='shapes'?'hue-rotate(300deg)':'none';
+    // Write mode UI
+    document.getElementById('shakeRing').style.display = mode==='write'?'block':'none';
+    document.getElementById('clearBtn').style.display = mode==='write'?'block':'none';
+    // Reset
+    if (mode!=='write') { drawPaths=[]; drawCtx.clearRect(0,0,W,H); penDown=false; activePath=null; }
+    particles=[]; ripples=[];
+    setGesture('mode: '+mode, false);
+    updateTouchOverlay();
+  });
+});
+
+// ─── TOUCH SUPPORT ────────────────────────────────────────────────────────────
+const touchOverlay = document.getElementById('touchOverlay');
+
+// Write modunda parmakla çizim
+let touchPaths = {}; // touch identifier → path
+
+function getTouchPos(touch) {
+  const rect = touchOverlay.getBoundingClientRect();
+  return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+}
+
+touchOverlay.addEventListener('touchstart', e => {
+  e.preventDefault();
+  initAudio();
+  for (const touch of e.changedTouches) {
+    pathHue = (pathHue + 40) % 360;
+    touchPaths[touch.identifier] = { points: [], hue: pathHue };
+    const pos = getTouchPos(touch);
+    touchPaths[touch.identifier].points.push(pos);
+    spawnRipple(pos.x, pos.y, `hsl(${pathHue},100%,70%)`);
+    playPop(300 + pathHue * 0.5);
+  }
+  setGesture('drawing ✎', true);
+}, { passive: false });
+
+touchOverlay.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const touch of e.changedTouches) {
+    if (!touchPaths[touch.identifier]) continue;
+    const pos = getTouchPos(touch);
+    touchPaths[touch.identifier].points.push(pos);
+    // Anlık çizim
+    const dctx = drawCtx;
+    const path = touchPaths[touch.identifier];
+    const pts = path.points;
+    if (pts.length >= 2) {
+      dctx.save();
+      dctx.strokeStyle = `hsl(${path.hue},100%,70%)`;
+      dctx.shadowColor = `hsl(${path.hue},100%,70%)`;
+      dctx.shadowBlur = 18;
+      dctx.lineWidth = 5; dctx.lineCap = 'round'; dctx.lineJoin = 'round';
+      dctx.beginPath();
+      const prev = pts[pts.length-2];
+      dctx.moveTo(prev.x, prev.y);
+      dctx.lineTo(pos.x, pos.y);
+      dctx.stroke();
+      dctx.restore();
+    }
+  }
+}, { passive: false });
+
+touchOverlay.addEventListener('touchend', e => {
+  e.preventDefault();
+  for (const touch of e.changedTouches) {
+    if (touchPaths[touch.identifier]) {
+      drawPaths.push(touchPaths[touch.identifier]);
+      delete touchPaths[touch.identifier];
+    }
+  }
+  if (Object.keys(touchPaths).length === 0) setGesture('touch to draw', false);
+}, { passive: false });
+
+touchOverlay.addEventListener('touchcancel', e => {
+  for (const touch of e.changedTouches) delete touchPaths[touch.identifier];
+}, { passive: false });
+
+// Play/Shapes modunda dokunma → ripple + parçacık
+document.addEventListener('touchstart', e => {
+  if (mode === 'write') return; // write modunda overlay halleder
+  initAudio();
+  for (const touch of e.changedTouches) {
+    const x = touch.clientX, y = touch.clientY;
+    spawnRipple(x, y, modeColors[mode]);
+    spawnParticles(x, y, 15, modeColors[mode]);
+    playZap();
+  }
+}, { passive: true });
+
+// Write moduna geçince overlay'i aktive et / kapat
+function updateTouchOverlay() {
+  if (mode === 'write') {
+    touchOverlay.classList.add('active');
+  } else {
+    touchOverlay.classList.remove('active');
+    // Yarım kalan touch çizimlerini temizle
+    touchPaths = {};
+  }
+}
+
+// ─── SPLASH + ENTRY ──────────────────────────────────────────────────────────
+async function enterExperience() {
+  initAudio();
+  document.getElementById('splash').classList.add('hidden');
+  try {
+    await initMediaPipe();
+  } catch(e) {
+    console.error('MediaPipe init failed:', e);
+  }
+  requestAnimationFrame(render);
+  setGesture('waiting for hands...', false);
+}
+</script>
+</body>
+</html>
